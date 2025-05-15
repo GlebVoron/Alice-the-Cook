@@ -6,10 +6,10 @@ import uuid
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
+
 def init_db():
     conn = sqlite3.connect('alice_recipes.db')
     c = conn.cursor()
-
 
     c.execute('''CREATE TABLE IF NOT EXISTS ingredients
                  (id TEXT PRIMARY KEY,
@@ -31,10 +31,13 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 init_db()
+
 
 @app.route('/post', methods=['POST'])
 def main():
+    start_time = time.time()
     try:
         logging.info(f'Incoming request: {request.json}')
 
@@ -48,6 +51,18 @@ def main():
                 "version": "1.0"
             }), 400
 
+        # Быстрый ответ для новых сессий
+        if request.json.get('session', {}).get('new', False):
+            return jsonify({
+                "version": request.json.get("version", "1.0"),
+                "session": request.json["session"],
+                "response": {
+                    "text": "Привет! Я помогу с рецептами. Скажите 'помощь' для списка команд.",
+                    "buttons": get_main_suggests(),
+                    "end_session": False
+                }
+            })
+
         response = {
             "version": request.json.get("version", "1.0"),
             "session": request.json["session"],
@@ -57,8 +72,7 @@ def main():
         }
 
         handle_dialog(request.json, response)
-
-        logging.info(f'Outgoing response: {response}')
+        logging.info(f'Request processed in {time.time() - start_time:.2f} seconds')
         return jsonify(response)
 
     except Exception as e:
@@ -105,6 +119,7 @@ def handle_dialog(req, res):
             res['response']['text'] = "Я не поняла команду. Скажите 'помощь' для списка команд."
 
         res['response']['buttons'] = get_main_suggests()
+
 
 def get_main_suggests():
     return [
@@ -266,3 +281,7 @@ def get_recipe_ingredients(command):
         return "Произошла ошибка при получении списка ингредиентов"
     finally:
         conn.close()
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
