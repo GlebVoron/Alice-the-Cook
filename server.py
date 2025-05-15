@@ -52,7 +52,6 @@ def main():
                 "version": "1.0"
             }), 400
 
-        # Быстрый ответ для новых сессий
         if request.json.get('session', {}).get('new', False):
             return jsonify({
                 "version": request.json.get("version", "1.0"),
@@ -86,6 +85,7 @@ def main():
             "version": "1.0"
         }), 500
 
+
 def handle_dialog(req, res):
     user_id = req['session']['user_id']
     command = req['request']['original_utterance'].lower()
@@ -102,6 +102,8 @@ def handle_dialog(req, res):
             res['response']['text'] = (
                 "Я умею работать с рецептами:\n"
                 "- Добавлять рецепты: 'Добавь рецепт [название] с ингредиентами [ингредиенты]'\n"
+                "- Удалять рецепты: 'Удали рецепт [название]'\n"
+                "- Показать все рецепты: 'Список рецептов'\n"
                 "- Искать рецепты по ингредиентам: 'Что приготовить из [ингредиенты]'\n"
                 "- Показывать рецепт: 'Как приготовить [название]'\n"
                 "- Показывать нужные ингредиенты: 'Что нужно для [название]'"
@@ -116,6 +118,10 @@ def handle_dialog(req, res):
             res['response']['text'] = get_recipe_instructions(command)
         elif 'что нужно для' in command:
             res['response']['text'] = get_recipe_ingredients(command)
+        elif 'все рецепты' in command:
+            res['response']['text'] = list_all_recipes()
+        elif 'сколько рецептов' in command or 'количество рецептов' in command:
+            res['response']['text'] = get_recipes_count()
         else:
             res['response']['text'] = "Я не поняла команду. Скажите 'помощь' для списка команд."
 
@@ -125,6 +131,8 @@ def handle_dialog(req, res):
 def get_main_suggests():
     return [
         {"title": "Добавить рецепт ...", "hide": True},
+        {"title": "Удалить рецепт ...", "hide": True},
+        {"title": "Все рецепты", "hide": True},
         {"title": "Что приготовить из ...", "hide": True},
         {"title": "Как приготовить ...", "hide": True},
         {"title": "Что нужно для ...", "hide": True},
@@ -185,6 +193,49 @@ def add_recipe(command):
     except Exception as e:
         logging.error(f"Error adding recipe: {str(e)}")
         return "Произошла ошибка при добавлении рецепта"
+    finally:
+        conn.close()
+
+
+def delete_recipe(command):
+    """Удаление рецепта из базы данных"""
+    try:
+        # Извлекаем название рецепта из команды
+        recipe_name = command.replace('удали рецепт', '').replace('удалить рецепт', '').strip()
+
+        if not recipe_name:
+            return "Пожалуйста, укажите название рецепта, например: 'Удали рецепт блины'"
+
+        conn = sqlite3.connect('alice_recipes.db')
+        c = conn.cursor()
+
+        # Проверяем существование рецепта
+        c.execute("SELECT id FROM recipes WHERE name = ?", (recipe_name,))
+        recipe = c.fetchone()
+
+        if not recipe:
+            return f"Рецепт '{recipe_name}' не найден."
+
+        recipe_id = recipe[0]
+
+        # Удаляем связи с ингредиентами
+        c.execute("DELETE FROM recipe_ingredients WHERE recipe_id = ?", (recipe_id,))
+
+        # Удаляем сам рецепт
+        c.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
+
+        conn.commit()
+
+        # Проверяем, остались ли ингредиенты без рецептов
+        c.execute("""DELETE FROM ingredients 
+                   WHERE id NOT IN (SELECT ingredient_id FROM recipe_ingredients)""")
+        conn.commit()
+
+        return f"Рецепт '{recipe_name}' успешно удалён."
+
+    except Exception as e:
+        logging.error(f"Error deleting recipe: {str(e)}")
+        return "Произошла ошибка при удалении рецепта"
     finally:
         conn.close()
 
@@ -280,6 +331,44 @@ def get_recipe_ingredients(command):
     except Exception as e:
         logging.error(f"Error getting ingredients: {str(e)}")
         return "Произошла ошибка при получении списка ингредиентов"
+    finally:
+        conn.close()
+
+
+def list_all_recipes():
+    try:
+        conn = sqlite3.connect('alice_recipes.db')
+        c = conn.cursor()
+
+        c.execute("SELECT name FROM recipes ORDER BY name")
+        recipes = c.fetchall()
+
+        if not recipes:
+            return "В базе пока нет рецептов. Добавьте первый рецепт командой 'Добавь рецепт'."
+
+        recipe_list = "\n- ".join([r[0] for r in recipes])
+        return f"Все доступные рецепты:\n- {recipe_list}\n\nДля получения подробностей скажите 'Как приготовить [название]'"
+
+    except Exception as e:
+        logging.error(f"Error listing recipes: {str(e)}")
+        return "Произошла ошибка при получении списка рецептов"
+    finally:
+        conn.close()
+
+
+def get_recipes_count():
+    try:
+        conn = sqlite3.connect('alice_recipes.db')
+        c = conn.cursor()
+
+        c.execute("SELECT COUNT(*) FROM recipes")
+        count = c.fetchone()[0]
+
+        return f"В базе содержится {count} рецептов."
+
+    except Exception as e:
+        logging.error(f"Error counting recipes: {str(e)}")
+        return "Не удалось получить количество рецептов"
     finally:
         conn.close()
 
