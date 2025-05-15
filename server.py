@@ -106,7 +106,8 @@ def handle_dialog(req, res):
                 "- Показать все рецепты: 'Список рецептов'\n"
                 "- Искать рецепты по ингредиентам: 'Что приготовить из [ингредиенты]'\n"
                 "- Показывать рецепт: 'Как приготовить [название]'\n"
-                "- Показывать нужные ингредиенты: 'Что нужно для [название]'"
+                "- Показывать нужные ингредиенты: 'Что нужно для [название]'\n\n"
+                "*Добавить инструкцию сейчас нельзя"
             )
         elif 'привет' in command:
             res['response']['text'] = "Снова здравствуйте! Чем могу помочь с рецептами?"
@@ -198,9 +199,7 @@ def add_recipe(command):
 
 
 def delete_recipe(command):
-    """Удаление рецепта из базы данных"""
     try:
-        # Извлекаем название рецепта из команды
         recipe_name = command.replace('удали рецепт', '').replace('удалить рецепт', '').strip()
 
         if not recipe_name:
@@ -209,7 +208,6 @@ def delete_recipe(command):
         conn = sqlite3.connect('alice_recipes.db')
         c = conn.cursor()
 
-        # Проверяем существование рецепта
         c.execute("SELECT id FROM recipes WHERE name = ?", (recipe_name,))
         recipe = c.fetchone()
 
@@ -218,15 +216,13 @@ def delete_recipe(command):
 
         recipe_id = recipe[0]
 
-        # Удаляем связи с ингредиентами
         c.execute("DELETE FROM recipe_ingredients WHERE recipe_id = ?", (recipe_id,))
 
-        # Удаляем сам рецепт
         c.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
 
         conn.commit()
 
-        # Проверяем, остались ли ингредиенты без рецептов
+
         c.execute("""DELETE FROM ingredients 
                    WHERE id NOT IN (SELECT ingredient_id FROM recipe_ingredients)""")
         conn.commit()
