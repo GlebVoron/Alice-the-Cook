@@ -24,7 +24,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS recipe_ingredients
                  (recipe_id TEXT,
                   ingredient_id TEXT,
-                  quantity TEXT,
                   PRIMARY KEY (recipe_id, ingredient_id),
                   FOREIGN KEY(recipe_id) REFERENCES recipes(id),
                   FOREIGN KEY(ingredient_id) REFERENCES ingredients(id))''')
@@ -93,8 +92,8 @@ def handle_dialog(req, res):
     if req['session']['new']:
         res['response']['text'] = (
             "Привет! Я помогу вам с рецептами. "
-            "Вы можете сказать: 'добавить рецепт', 'что приготовить', "
-            "'как приготовить [блюдо]' или 'помощь'."
+            "Вы можете сказать: 'добавить рецепт', 'удалить рецепт', 'все рецепты', "
+            "'что приготовить', 'как приготовить [блюдо]' или 'помощь'."
         )
         res['response']['buttons'] = get_main_suggests()
     else:
@@ -106,13 +105,14 @@ def handle_dialog(req, res):
                 "- Показать все рецепты: 'Список рецептов'\n"
                 "- Искать рецепты по ингредиентам: 'Что приготовить из [ингредиенты]'\n"
                 "- Показывать рецепт: 'Как приготовить [название]'\n"
-                "- Показывать нужные ингредиенты: 'Что нужно для [название]'\n\n"
-                "*Добавить инструкцию сейчас нельзя"
+                "- Показывать нужные ингредиенты: 'Что нужно для [название]'"
             )
         elif 'привет' in command:
             res['response']['text'] = "Снова здравствуйте! Чем могу помочь с рецептами?"
         elif 'добавь рецепт' in command:
             res['response']['text'] = add_recipe(command)
+        elif 'удали рецепт' in command or 'удалить рецепт' in command:
+            res['response']['text'] = delete_recipe(command)
         elif 'что приготовить из' in command:
             res['response']['text'] = find_recipes_by_ingredients(command)
         elif 'как приготовить' in command:
@@ -145,7 +145,7 @@ def add_recipe(command):
     try:
         parts = command.split(' с ингредиентами ')
         if len(parts) < 2:
-            return "Неверный формат команды. Пример: 'Добавь рецепт блины с ингредиентами мука 300г, яйца 2шт, молоко 500мл'"
+            return "Неверный формат команды. Пример: 'Добавь рецепт блины с ингредиентами мука, яйца, молоко'"
 
         recipe_name = parts[0].replace('добавь рецепт ', '').strip()
         ingredients_str = parts[1]
@@ -163,30 +163,20 @@ def add_recipe(command):
         c.execute("INSERT INTO recipes (id, name, instructions) VALUES (?, ?, ?)",
                   (recipe_id, recipe_name, instructions))
 
-        ingredients = [ing.strip() for ing in ingredients_str.split(',')]
-        for ing in ingredients:
-            if not ing:
-                continue
-
-            ing_parts = ing.rsplit(' ', 1)
-            if len(ing_parts) < 2:
-                ing_name = ing
-                quantity = ""
-            else:
-                ing_name, quantity = ing_parts
-
-            c.execute("SELECT id FROM ingredients WHERE name = ?", (ing_name.lower(),))
+        ingredients = [ing.strip().lower() for ing in ingredients_str.split(',') if ing.strip()]
+        for ing_name in ingredients:
+            c.execute("SELECT id FROM ingredients WHERE name = ?", (ing_name,))
             ingredient = c.fetchone()
 
             if not ingredient:
                 ingredient_id = str(uuid.uuid4())
                 c.execute("INSERT INTO ingredients (id, name) VALUES (?, ?)",
-                          (ingredient_id, ing_name.lower()))
+                          (ingredient_id, ing_name))
             else:
                 ingredient_id = ingredient[0]
 
-            c.execute("INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity) VALUES (?, ?, ?)",
-                      (recipe_id, ingredient_id, quantity))
+            c.execute("INSERT INTO recipe_ingredients (recipe_id, ingredient_id) VALUES (?, ?)",
+                      (recipe_id, ingredient_id))
 
         conn.commit()
         return f"Рецепт '{recipe_name}' успешно добавлен!"
@@ -217,16 +207,12 @@ def delete_recipe(command):
         recipe_id = recipe[0]
 
         c.execute("DELETE FROM recipe_ingredients WHERE recipe_id = ?", (recipe_id,))
-
         c.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
-
-        conn.commit()
-
 
         c.execute("""DELETE FROM ingredients 
                    WHERE id NOT IN (SELECT ingredient_id FROM recipe_ingredients)""")
-        conn.commit()
 
+        conn.commit()
         return f"Рецепт '{recipe_name}' успешно удалён."
 
     except Exception as e:
@@ -239,7 +225,7 @@ def delete_recipe(command):
 def find_recipes_by_ingredients(command):
     try:
         ingredients_str = command.replace('что приготовить из', '').strip()
-        user_ingredients = [ing.strip().lower() for ing in ingredients_str.split(',')]
+        user_ingredients = [ing.strip().lower() for ing in ingredients_str.split(',') if ing.strip()]
 
         if not user_ingredients:
             return "Пожалуйста, укажите ингредиенты, например: 'что приготовить из яйца, мука, молоко'"
@@ -309,7 +295,7 @@ def get_recipe_ingredients(command):
         c = conn.cursor()
 
         query = """
-        SELECT i.name, ri.quantity 
+        SELECT i.name 
         FROM recipe_ingredients ri
         JOIN ingredients i ON ri.ingredient_id = i.id
         JOIN recipes r ON ri.recipe_id = r.id
@@ -321,7 +307,7 @@ def get_recipe_ingredients(command):
         if not ingredients:
             return f"Рецепт '{recipe_name}' не найден или у него нет ингредиентов."
 
-        ingredients_list = "\n- ".join([f"{ing[0]} {ing[1]}" if ing[1] else ing[0] for ing in ingredients])
+        ingredients_list = "\n- ".join([ing[0] for ing in ingredients])
         return f"Для приготовления '{recipe_name}' вам понадобится:\n- {ingredients_list}"
 
     except Exception as e:
