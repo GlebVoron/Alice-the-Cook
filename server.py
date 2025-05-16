@@ -101,6 +101,7 @@ def handle_dialog(req, res):
             res['response']['text'] = (
                 "Я умею работать с рецептами:\n"
                 "- Добавлять рецепты: 'Добавь рецепт [название] с ингредиентами [ингредиенты]'\n"
+                "- Добавлять шаги готовки рецепта: 'Добавить действия для готовки название: шаг1; шаг2; шаг3'\n"
                 "- Удалять рецепты: 'Удали рецепт [название]'\n"
                 "- Показать все рецепты: 'Список рецептов'\n"
                 "- Искать рецепты по ингредиентам: 'Что приготовить из [ингредиенты]'\n"
@@ -125,6 +126,8 @@ def handle_dialog(req, res):
             res['response']['text'] = list_all_recipes()
         elif 'сколько рецептов' in command or 'количество рецептов' in command:
             res['response']['text'] = get_recipes_count()
+        elif 'добавить действия для готовки' in command:
+            res['response']['text'] = add_cooking_instructions(command)
         else:
             res['response']['text'] = "Я не поняла команду. Скажите 'помощь' для списка команд."
 
@@ -134,6 +137,7 @@ def handle_dialog(req, res):
 def get_main_suggests():
     return [
         {"title": "Добавить рецепт ...", "hide": True},
+        {"title": "Добавить действия для готовки ...", "hide": True},
         {"title": "Удалить рецепт ...", "hide": True},
         {"title": "Все рецепты", "hide": True},
         {"title": "Что приготовить из ...", "hide": True},
@@ -142,6 +146,40 @@ def get_main_suggests():
         {"title": "Помощь", "hide": True}
     ]
 
+
+def add_cooking_instructions(command):
+    try:
+        parts = command.split(':', 1)
+        recipe_name = str(parts[0].strip()[4:])
+
+        steps = [step.strip() for step in parts[1].split(';') if step.strip()]
+
+        if not recipe_name:
+            return "Не указано название рецепта"
+        if not steps:
+            return "Не указаны шаги приготовления"
+
+        conn = sqlite3.connect('alice_recipes.db')
+        c = conn.cursor()
+
+        c.execute("SELECT id FROM recipes WHERE name = ?", (recipe_name,))
+        recipe = c.fetchone()
+
+        if not recipe:
+            return f"Рецепт '{recipe_name}' не найден. Сначала добавьте рецепт."
+
+        instructions = "\n".join([f"{i + 1}. {step}" for i, step in enumerate(steps)])
+        c.execute("UPDATE recipes SET instructions = ? WHERE name = ?",
+                  (instructions, recipe_name))
+
+        conn.commit()
+        return (f"Для рецепта '{recipe_name}' добавлены шаги приготовления:\n"
+                f"{instructions}")
+    except Exception as e:
+        logging.error(f"Error adding instructions: {str(e)}")
+        return "Произошла ошибка при добавлении шагов приготовления"
+    finally:
+        conn.close()
 
 def add_recipe(command):
     try:
