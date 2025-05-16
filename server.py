@@ -148,9 +148,10 @@ def get_main_suggests():
 
 
 def add_cooking_instructions(command):
+    conn = sqlite3.connect('alice_recipes.db')
     try:
         parts = command.split(':', 1)
-        recipe_name = str(parts[0].strip()[4:])
+        recipe_name = " ".join(parts[0].split()[4:])
 
         steps = [step.strip() for step in parts[1].split(';') if step.strip()]
 
@@ -159,7 +160,6 @@ def add_cooking_instructions(command):
         if not steps:
             return "Не указаны шаги приготовления"
 
-        conn = sqlite3.connect('alice_recipes.db')
         c = conn.cursor()
 
         c.execute("SELECT id FROM recipes WHERE name = ?", (recipe_name,))
